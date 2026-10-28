@@ -15,7 +15,6 @@ if (Process.GetProcessesByName("Spotify").Length == 0)
 }
 
 using var mutex = new Mutex(true, @"Local\SpotifyAdMuter", out bool createdNew);
-
 if (!createdNew)
 {
     Console.WriteLine("The program is already running. Exiting ...");
@@ -48,14 +47,14 @@ while (true)
     }
 
     var media = await session.TryGetMediaPropertiesAsync();
-    if (!adDetected && media.AlbumTitle is "")
+    if (!adDetected && media.AlbumTitle == "")
     {
         adDetected = true;
         MuteOrRestore(true);
 
         Console.WriteLine("» 🔇 Ad found! Spotify is muted until the next song!");
     }
-    else if (adDetected && media.AlbumTitle is not "")
+    else if (adDetected && media.AlbumTitle != "")
     {
         adDetected = false;
         MuteOrRestore(false);
@@ -63,7 +62,7 @@ while (true)
         Console.WriteLine("» 🔈 Songs are playing 😀🕺💃. Audio is back to normal");
     }
 
-    await Task.Delay(TimeSpan.FromSeconds(0.5));
+    await Task.Delay(TimeSpan.FromSeconds(0.1));
 }
 
 void Pause()
