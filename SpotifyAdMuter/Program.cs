@@ -29,7 +29,7 @@ Console.WriteLine("Press Control+C to close this program, or simply close the te
 
 var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
 
-bool adDetected = false;
+var adDetected = false;
 while (true)
 {
     var session = manager
