@@ -66,13 +66,13 @@ while (true)
     await Task.Delay(TimeSpan.FromSeconds(0.5));
 }
 
-static void Pause()
+void Pause()
 {
     Console.WriteLine("Press any key to continue ...");
     Console.ReadKey(true);
 }
 
-static void MuteOrRestore(bool mute)
+void MuteOrRestore(bool mute)
 {
     using var enumerator = new MMDeviceEnumerator();
     using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
