@@ -1,0 +1,7 @@
+# .NET build outputs
+bin/
+obj/
+
+# Windows
+Thumbs.db
+Desktop.ini

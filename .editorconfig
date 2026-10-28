@@ -1,0 +1,4 @@
+[*.cs]
+indent_style = space
+indent_size = 4
+dotnet_diagnostic.IDE0005.severity = error
