@@ -81,18 +81,24 @@ class TrayContext : ApplicationContext
 
             var media = await session.TryGetMediaPropertiesAsync();
             // 多檢查 media.Title 是為了確保先結束 Spotify 時不會意外靜音；
-            // 狀態要等 MuteOrRestore 成功後才更新，失敗時下一個 Tick 才會重試
+            // 狀態要等 MuteOrUnmute 確定成功後才更新，失敗時下一個 Tick 才會重試
             if (!_adDetected && media.Title != "" && media.AlbumTitle == "")
             {
-                MuteOrRestore(true);
-                _adDetected = true;
-                _icon.Text = Strings.Current.TrayTooltipAdMutedText;
+                var muted = MuteOrUnmute(true);
+                if (muted)
+                {
+                    _adDetected = true;
+                    _icon.Text = Strings.Current.TrayTooltipAdMutedText;
+                }
             }
             else if (_adDetected && media.AlbumTitle != "")
             {
-                MuteOrRestore(false);
-                _adDetected = false;
-                _icon.Text = "SpotifyAdMuter";
+                var unmuted = MuteOrUnmute(false);
+                if (unmuted)
+                {
+                    _adDetected = false;
+                    _icon.Text = "SpotifyAdMuter";
+                }
             }
         }
         catch (COMException) { } // 音訊裝置被拔除、Spotify 的媒體工作階段剛好關閉等
@@ -113,28 +119,28 @@ class TrayContext : ApplicationContext
         _icon.Dispose();
 
         // 結束時如果正在播廣告，要先取消靜音；發生錯誤時也盡力還原，失敗就提醒使用者
-        var restoreFailed = false;
+        var unmuteFailed = false;
         if (_adDetected)
         {
             try
             {
-                MuteOrRestore(false);
+                unmuteFailed = !MuteOrUnmute(false);
             }
             catch (Exception)
             {
-                restoreFailed = true;
+                unmuteFailed = true;
             }
         }
 
         if (ex is not null)
         {
             var message = $"{Strings.Current.ErrorDialogText}\n\n{ex.Message}";
-            if (restoreFailed)
+            if (unmuteFailed)
                 message += $"\n\n{Strings.Current.UnmuteFailedHint}";
 
             MessageBox.Show(message, "SpotifyAdMuter", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
-        else if (restoreFailed)
+        else if (unmuteFailed)
         {
             MessageBox.Show(
                 Strings.Current.UnmuteFailedHint,
@@ -147,8 +153,10 @@ class TrayContext : ApplicationContext
         ExitThread();
     }
 
-    static void MuteOrRestore(bool mute)
+    static bool MuteOrUnmute(bool mute)
     {
+        var foundSpotify = false;
+
         using var enumerator = new MMDeviceEnumerator();
         using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
         var sessions = device.AudioSessionManager.Sessions;
@@ -157,9 +165,12 @@ class TrayContext : ApplicationContext
             var session = sessions[i];
             if (IsSpotify(session))
             {
+                foundSpotify = true;
                 session.SimpleAudioVolume.Mute = mute;
             }
         }
+
+        return foundSpotify;
     }
 
     // 清單裡可能有已經結束的程式留下的工作階段，查不到就跳過，不要中斷整個迴圈

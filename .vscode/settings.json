@@ -13,5 +13,5 @@
     "editor.formatOnSave": true
   },
   "editor.rulers": [80],
-  "cSpell.words": ["unmute"]
+  "cSpell.words": ["unmute", "unmuted"]
 }
