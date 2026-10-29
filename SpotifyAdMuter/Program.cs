@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using NAudio.CoreAudioApi;
 using Windows.Media.Control;
@@ -14,7 +14,7 @@ static class Program
         if (!createdNew)
         {
             MessageBox.Show(
-                "The program is already running.",
+                Strings.Current.AlreadyRunningDialogText,
                 "SpotifyAdMuter",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information
@@ -37,11 +37,11 @@ class TrayContext : ApplicationContext
     public TrayContext()
     {
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Exit", null, (_, _) => ExitApp());
+        menu.Items.Add(Strings.Current.TrayMenuExitText, null, (_, _) => ExitApp());
 
         _icon = new NotifyIcon()
         {
-            Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!), // 從 exe 本身取出 ApplicationIcon（logo.ico），單一檔案發佈時也能用
+            Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!), // 從 exe 本身取出 ApplicationIcon (logo.ico)，單一檔案發佈時也能用
             Text = "SpotifyAdMuter",
             ContextMenuStrip = menu,
             Visible = true,
@@ -49,7 +49,7 @@ class TrayContext : ApplicationContext
         _icon.ShowBalloonTip(
             5000, // timeout 沒有實際作用，只是為了相容舊版 Windows
             "SpotifyAdMuter",
-            "Spotify Ads will be silenced while this program is running! (This works ONLY with the Spotify App, not the web version)",
+            Strings.Current.StartupBalloonText,
             ToolTipIcon.Info
         );
 
@@ -60,7 +60,7 @@ class TrayContext : ApplicationContext
     async Task PollAsync()
     {
         if (_busy)
-            return; // Tick 是 async，避免上一輪還沒跑完又重入
+            return; // Tick 是 async，避免上一輪還沒跑完又重複執行
 
         _busy = true;
         try
@@ -74,18 +74,19 @@ class TrayContext : ApplicationContext
             if (session is null)
             {
                 _timer.Stop();
-                await Task.Delay(5000);
+                await Task.Delay(1000);
                 _timer.Start();
                 return;
             }
 
             var media = await session.TryGetMediaPropertiesAsync();
+            // 多檢查 media.Title 是為了確保先結束 Spotify 時不會意外靜音；
             // 狀態要等 MuteOrRestore 成功後才更新，失敗時下一個 Tick 才會重試
-            if (!_adDetected && media.AlbumTitle == "")
+            if (!_adDetected && media.Title != "" && media.AlbumTitle == "")
             {
                 MuteOrRestore(true);
                 _adDetected = true;
-                _icon.Text = "SpotifyAdMuter(🔇Ad muted)";
+                _icon.Text = Strings.Current.TrayTooltipAdMutedText;
             }
             else if (_adDetected && media.AlbumTitle != "")
             {
@@ -125,20 +126,18 @@ class TrayContext : ApplicationContext
             }
         }
 
-        const string restoreHint =
-            "Spotify may still be muted. Please restore its volume in the Volume Mixer.";
         if (ex is not null)
         {
-            var message = $"An error occurred and the program will exit.\n\n{ex.Message}";
+            var message = $"{Strings.Current.ErrorDialogText}\n\n{ex.Message}";
             if (restoreFailed)
-                message += $"\n\n{restoreHint}";
+                message += $"\n\n{Strings.Current.UnmuteFailedHint}";
 
             MessageBox.Show(message, "SpotifyAdMuter", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         else if (restoreFailed)
         {
             MessageBox.Show(
-                restoreHint,
+                Strings.Current.UnmuteFailedHint,
                 "SpotifyAdMuter",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning
