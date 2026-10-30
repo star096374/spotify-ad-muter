@@ -31,7 +31,9 @@ class TrayContext : ApplicationContext
     readonly NotifyIcon _icon;
     readonly System.Windows.Forms.Timer _timer = new() { Interval = 100 };
     bool _busy;
+    bool _exiting; // ExitApp 已開始執行：讓結束後才繼續執行的 Tick 直接返回，也避免 ExitApp 重複執行
     GlobalSystemMediaTransportControlsSessionManager? _manager;
+    bool _initialUnmuteDone; // 啟動時先確保 Spotify 沒有被靜音
     bool _adDetected;
 
     public TrayContext()
@@ -59,13 +61,18 @@ class TrayContext : ApplicationContext
 
     async Task PollAsync()
     {
-        if (_busy)
-            return; // Tick 是 async，避免上一輪還沒跑完又重複執行
+        // _busy：Tick 是 async，避免上一輪還沒跑完又重複執行
+        // _exiting：ExitApp 停掉 timer 前可能已有 Tick 在佇列裡等著
+        if (_busy || _exiting)
+            return;
 
         _busy = true;
         try
         {
             _manager ??= await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+            if (_exiting)
+                return;
+
             var session = _manager
                 .GetSessions()
                 .FirstOrDefault(s =>
@@ -73,13 +80,27 @@ class TrayContext : ApplicationContext
                 );
             if (session is null)
             {
-                _timer.Stop();
-                await Task.Delay(1000);
-                _timer.Start();
+                await DelayNextPollAsync();
                 return;
             }
 
+            if (!_initialUnmuteDone)
+            {
+                // 還沒成功就先不做廣告偵測，等一下再重試
+                // 例：Spotify 開著但還沒播放時，找不到它的音訊工作階段
+                if (!MuteOrUnmute(false))
+                {
+                    await DelayNextPollAsync();
+                    return;
+                }
+
+                _initialUnmuteDone = true;
+            }
+
             var media = await session.TryGetMediaPropertiesAsync();
+            if (_exiting)
+                return;
+
             // 多檢查 media.Title 是為了確保先結束 Spotify 時不會意外靜音；
             // 狀態要等 MuteOrUnmute 確定成功後才更新，失敗時下一個 Tick 才會重試
             if (!_adDetected && media.Title != "" && media.AlbumTitle == "")
@@ -101,7 +122,12 @@ class TrayContext : ApplicationContext
                 }
             }
         }
-        catch (COMException) { } // 音訊裝置被拔除、Spotify 的媒體工作階段剛好關閉等
+        catch (COMException)
+        {
+            // Spotify 的媒體工作階段剛好關閉等，下一個 Tick 再重試；
+            // _manager 可能因系統服務重新啟動而失效，清掉讓下一個 Tick 重新取得
+            _manager = null;
+        }
         catch (Exception ex)
         {
             ExitApp(ex);
@@ -112,8 +138,23 @@ class TrayContext : ApplicationContext
         }
     }
 
+    // 暫停輪詢一秒，避免在沒有必要時每個 Tick 都重試
+    async Task DelayNextPollAsync()
+    {
+        _timer.Stop();
+        await Task.Delay(1000);
+        if (!_exiting)
+            _timer.Start();
+    }
+
     void ExitApp(Exception? ex = null)
     {
+        // 結束後才醒來的 Tick，其 await 仍可能丟出例外而再次呼叫這裡
+        if (_exiting)
+            return;
+
+        _exiting = true;
+
         _timer.Stop();
         _icon.Visible = false;
         _icon.Dispose();
@@ -155,47 +196,45 @@ class TrayContext : ApplicationContext
 
     static bool MuteOrUnmute(bool mute)
     {
+        // 先一次取得所有 Spotify 程序的 PID，之後每個工作階段只要比對，不用逐一查詢程序；
+        // 已經結束的程式留下的工作階段，PID 不會在名單裡，自然會被跳過
+        var spotifyPids = new HashSet<uint>();
+        foreach (var process in Process.GetProcessesByName("Spotify"))
+        {
+            using (process)
+                spotifyPids.Add((uint)process.Id);
+        }
+
+        if (spotifyPids.Count == 0)
+            return false; // Spotify 沒有在執行，不用掃裝置
+
         var foundSpotify = false;
 
+        // Spotify 不一定是輸出到預設裝置，所以全部掃過
         using var enumerator = new MMDeviceEnumerator();
-        using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-        var sessions = device.AudioSessionManager.Sessions;
-        for (int i = 0; i < sessions.Count; i++)
+        foreach (
+            var device in enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active)
+        )
         {
-            var session = sessions[i];
-            if (IsSpotify(session))
+            using (device)
             {
-                foundSpotify = true;
-                session.SimpleAudioVolume.Mute = mute;
+                try
+                {
+                    using var sessions = device.AudioSessionManager.Sessions; // AudioSessionManager 不會替我們釋放它
+                    for (int i = 0; i < sessions.Count; i++)
+                    {
+                        using var session = sessions[i];
+                        if (spotifyPids.Contains(session.GetProcessID))
+                        {
+                            session.SimpleAudioVolume.Mute = mute;
+                            foundSpotify = true;
+                        }
+                    }
+                }
+                catch (COMException) { } // 裝置剛好被拔除等，跳過這個裝置，繼續處理其他裝置
             }
         }
 
         return foundSpotify;
-    }
-
-    // 清單裡可能有已經結束的程式留下的工作階段，查不到就跳過，不要中斷整個迴圈
-    static bool IsSpotify(AudioSessionControl session)
-    {
-        try
-        {
-            var pid = session.GetProcessID;
-            if (pid == 0)
-                return false;
-
-            using var process = Process.GetProcessById((int)pid);
-            return process.ProcessName.Equals("Spotify", StringComparison.OrdinalIgnoreCase);
-        }
-        catch (ArgumentException) // GetProcessById：程式已經結束
-        {
-            return false;
-        }
-        catch (InvalidOperationException) // ProcessName：程式已經結束
-        {
-            return false;
-        }
-        catch (COMException) // 工作階段已經失效
-        {
-            return false;
-        }
     }
 }

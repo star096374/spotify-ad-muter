@@ -18,7 +18,8 @@ sealed class Strings
         StartupBalloonText =
             "Spotify ads will be silenced while this program is running! (This works ONLY with the Spotify app, not the web version.)",
         TrayTooltipAdMutedText = "SpotifyAdMuter(🔇Ad muted)",
-        UnmuteFailedHint = "Spotify may still be muted. Please unmute it in the Volume Mixer.",
+        UnmuteFailedHint =
+            "Spotify may still be muted. Please unmute it in the Volume Mixer or launch this program again.",
         ErrorDialogText = "An error occurred, and the program will exit.",
     };
 
@@ -29,7 +30,7 @@ sealed class Strings
         StartupBalloonText =
             "此程式執行期間，Spotify 廣告將會被靜音！ (僅適用於 Spotify 應用程式，不支援網頁版)",
         TrayTooltipAdMutedText = "SpotifyAdMuter(🔇廣告已靜音)",
-        UnmuteFailedHint = "Spotify 可能仍處於靜音狀態，請至音量混音程式解除靜音。",
+        UnmuteFailedHint = "Spotify 可能仍處於靜音狀態，請至音量混音程式解除靜音或再次啟動此程式。",
         ErrorDialogText = "發生錯誤，程式即將結束。",
     };
 
